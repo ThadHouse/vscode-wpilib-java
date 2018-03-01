@@ -44,15 +44,15 @@ export async function activate(_: vscode.ExtensionContext) {
         return;
     }
 
-    let javaExtension = vscode.extensions.getExtension('vscjava.vscode-java-debug');
-    if (javaExtension === undefined) {
-        vscode.window.showErrorMessage('Could not find java extension');
-        return;
-    }
+    let allowDebug = true;
 
     let promises = new Array<Thenable<any>>();
 
-    if (!javaExtension.isActive) {
+    let javaExtension = vscode.extensions.getExtension('vscjava.vscode-java-debug');
+    if (javaExtension === undefined) {
+        vscode.window.showInformationMessage('Could not find java extension. Debugging is disabled.');
+        allowDebug = false;
+    } else if (!javaExtension.isActive) {
         promises.push(javaExtension.activate());
     }
 
@@ -93,35 +93,37 @@ export async function activate(_: vscode.ExtensionContext) {
         }
     });
 
-    coreExports.registerCodeDebug({
-        async getIsCurrentlyValid(workspace: vscode.WorkspaceFolder): Promise<boolean> {
-            let prefs = await coreExports.getPreferences(workspace);
-            let currentLanguage = prefs.getCurrentLanguage();
-            return currentLanguage === 'none' || currentLanguage === 'java';
-        },
-        async runDeployer(teamNumber: number, workspace: vscode.WorkspaceFolder): Promise<boolean> {
-            let command = 'deploy --offline -PdebugMode -PteamNumber=' + teamNumber;
-            gradleChannel.clear();
-            gradleChannel.show();
-            let result = await gradleRun(command, workspace.uri.fsPath, gradleChannel);
+    if (allowDebug) {
+        coreExports.registerCodeDebug({
+            async getIsCurrentlyValid(workspace: vscode.WorkspaceFolder): Promise<boolean> {
+                let prefs = await coreExports.getPreferences(workspace);
+                let currentLanguage = prefs.getCurrentLanguage();
+                return currentLanguage === 'none' || currentLanguage === 'java';
+            },
+            async runDeployer(teamNumber: number, workspace: vscode.WorkspaceFolder): Promise<boolean> {
+                let command = 'deploy --offline -PdebugMode -PteamNumber=' + teamNumber;
+                gradleChannel.clear();
+                gradleChannel.show();
+                let result = await gradleRun(command, workspace.uri.fsPath, gradleChannel);
 
-            let parsed = parseGradleOutput(result);
+                let parsed = parseGradleOutput(result);
 
-            let config: DebugCommands = {
-                serverAddress: parsed.ip,
-                serverPort: parsed.port,
-                workspace: workspace
-            };
+                let config: DebugCommands = {
+                    serverAddress: parsed.ip,
+                    serverPort: parsed.port,
+                    workspace: workspace
+                };
 
-            await startDebugging(config);
+                await startDebugging(config);
 
-            console.log(result);
-            return true;
-        },
-        getDisplayName(): string {
-            return 'java';
-        }
-    });
+                console.log(result);
+                return true;
+            },
+            getDisplayName(): string {
+                return 'java';
+            }
+        });
+    }
 }
 
 // this method is called when your extension is deactivated
