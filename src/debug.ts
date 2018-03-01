@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 export interface DebugCommands {
   serverAddress: string;
   serverPort: string;
+  workspace: vscode.WorkspaceFolder;
 }
 
 export async function startDebugging(commands: DebugCommands): Promise<void> {
@@ -15,5 +16,5 @@ export async function startDebugging(commands: DebugCommands): Promise<void> {
     port: commands.serverPort
   };
 
-  await vscode.debug.startDebugging(undefined, config);
+  await vscode.debug.startDebugging(commands.workspace, config);
 }
