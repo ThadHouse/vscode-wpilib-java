@@ -4,7 +4,31 @@
 import * as vscode from 'vscode';
 import { IExternalAPI } from './externalapi';
 import { DebugCommands, startDebugging } from './debug';
-import { gradleRun } from './gradle';
+import { gradleRun, OutputPair } from './gradle';
+
+interface DebuggerParse {
+    port: string;
+    ip: string;
+}
+
+function parseGradleOutput(output: OutputPair): DebuggerParse {
+    let ret: DebuggerParse = {
+        port: '',
+        ip: ''
+    };
+
+    let results = output.stdout.split('\n');
+    for(let r of results) {
+        if (r.indexOf('DEBUGGING ACTIVE ON PORT ') >= 0) {
+            ret.port = r.substring(27, r.indexOf('!')).trim();
+        }
+        if (r.indexOf('Using address ') >= 0) {
+            ret.ip = r.substring(14, r.indexOf(' for')).trim();
+        }
+    }
+
+    return ret;
+}
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
@@ -44,31 +68,18 @@ export async function activate(_: vscode.ExtensionContext) {
 
     let gradleChannel = vscode.window.createOutputChannel('gradleJava');
 
-    let wp = vscode.workspace.workspaceFolders;
-
-    if (wp === undefined) {
-        vscode.window.showErrorMessage('File mode is not supported');
-        return;
-    }
-
-    let workspaces : vscode.WorkspaceFolder[] = wp;
-
-    let getWorkSpace = async (): Promise<vscode.WorkspaceFolder | undefined> => {
-        if (workspaces.length === 1) {
-            return workspaces[0];
-        }
-        return await vscode.window.showWorkspaceFolderPick();
-        //return workspaces[0];
-    };
+    coreExports.addLanguageChoice('java');
 
     coreExports.registerCodeDeploy({
-        async getIsCurrentlyValid(): Promise<boolean> {
-            return true;
+        async getIsCurrentlyValid(workspace: vscode.WorkspaceFolder): Promise<boolean> {
+            let prefs = await coreExports.getPreferences(workspace);
+            let currentLanguage = prefs.getCurrentLanguage();
+            return currentLanguage === 'none' || currentLanguage === 'java';
         },
-        async runDeployer(teamNumber: number): Promise<boolean> {
+        async runDeployer(teamNumber: number, workspace: vscode.WorkspaceFolder): Promise<boolean> {
             let command = 'deploy --offline -PteamNumber=' + teamNumber;
+            gradleChannel.clear();
             gradleChannel.show();
-            let workspace = await getWorkSpace();
             if (workspace === undefined) {
                 vscode.window.showInformationMessage('No workspace selected');
                 return false;
@@ -83,22 +94,22 @@ export async function activate(_: vscode.ExtensionContext) {
     });
 
     coreExports.registerCodeDebug({
-        async getIsCurrentlyValid(): Promise<boolean> {
-            return true;
+        async getIsCurrentlyValid(workspace: vscode.WorkspaceFolder): Promise<boolean> {
+            let prefs = await coreExports.getPreferences(workspace);
+            let currentLanguage = prefs.getCurrentLanguage();
+            return currentLanguage === 'none' || currentLanguage === 'java';
         },
-        async runDeployer(teamNumber: number): Promise<boolean> {
+        async runDeployer(teamNumber: number, workspace: vscode.WorkspaceFolder): Promise<boolean> {
             let command = 'deploy --offline -PdebugMode -PteamNumber=' + teamNumber;
+            gradleChannel.clear();
             gradleChannel.show();
-            let workspace = await getWorkSpace();
-            if (workspace === undefined) {
-                vscode.window.showInformationMessage('No workspace selected');
-                return false;
-            }
             let result = await gradleRun(command, workspace.uri.fsPath, gradleChannel);
 
+            let parsed = parseGradleOutput(result);
+
             let config: DebugCommands = {
-                serverAddress: '172.22.11.2',
-                serverPort: '6667',
+                serverAddress: parsed.ip,
+                serverPort: parsed.port,
                 workspace: workspace
             };
 
